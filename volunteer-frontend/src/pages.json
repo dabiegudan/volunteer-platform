@@ -1,0 +1,122 @@
+{
+  "pages": [
+    {
+      "path": "pages/login/index",
+      "style": {
+        "navigationStyle": "custom",
+        "navigationBarTitleText": "登录"
+      }
+    },
+    {
+      "path": "pages/index/index",
+      "style": {
+        "navigationStyle": "custom",
+        "navigationBarTitleText": "志愿服务平台",
+        "enablePullDownRefresh": true,
+        "backgroundColor": "#EEF2F1"
+      }
+    },
+    {
+      "path": "pages/client/index",
+      "style": {
+        "navigationBarTitleText": "客户端页面",
+        "enablePullDownRefresh": true,
+        "backgroundColor": "#EEF2F1"
+      }
+    },
+    {
+      "path": "pages/activity/detail",
+      "style": {
+        "navigationBarTitleText": "活动详情",
+        "enablePullDownRefresh": true
+      }
+    },
+    {
+      "path": "pages/my-activities/index",
+      "style": {
+        "navigationBarTitleText": "我的活动",
+        "enablePullDownRefresh": true
+      }
+    },
+    {
+      "path": "pages/todo/index",
+      "style": {
+        "navigationBarTitleText": "待办清单",
+        "enablePullDownRefresh": true
+      }
+    },
+    {
+      "path": "pages/message/index",
+      "style": {
+        "navigationBarTitleText": "消息中心",
+        "enablePullDownRefresh": true
+      }
+    },
+    {
+      "path": "pages/tools/index",
+      "style": {
+        "navigationBarTitleText": "志愿工具"
+      }
+    },
+    {
+      "path": "pages/report/index",
+      "style": {
+        "navigationBarTitleText": "个人报表"
+      }
+    },
+    {
+      "path": "pages/statistics/index",
+      "style": {
+        "navigationBarTitleText": "数据统计",
+        "enablePullDownRefresh": true
+      }
+    },
+    {
+      "path": "pages/mine/index",
+      "style": {
+        "navigationBarTitleText": "我的"
+      }
+    },
+    {
+      "path": "pages/profile/bind-student",
+      "style": {
+        "navigationBarTitleText": "绑定学号"
+      }
+    },
+    {
+      "path": "pages/profile/edit",
+      "style": {
+        "navigationBarTitleText": "完善资料"
+      }
+    },
+    {
+      "path": "pages/tools/supplementary",
+      "style": {
+        "navigationBarTitleText": "补签申请"
+      }
+    },
+    {
+      "path": "pages/ai/chat",
+      "style": {
+        "navigationBarTitleText": "服务咨询"
+      }
+    }
+  ],
+  "tabBar": {
+    "height": "0px",
+    "color": "#64736F",
+    "selectedColor": "#185C4F",
+    "backgroundColor": "#FFFFFF",
+    "borderStyle": "white",
+    "shown": false,
+    "list": []
+  },
+  "globalStyle": {
+    "navigationBarTextStyle": "black",
+    "navigationBarTitleText": "志愿服务平台",
+    "navigationBarBackgroundColor": "#EEF2F1",
+    "backgroundColor": "#EEF2F1"
+  },
+  "uniIdRouter": {}
+}
+

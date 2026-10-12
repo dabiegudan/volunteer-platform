@@ -1,0 +1,7 @@
+# 测试夹具：模拟"只复制了 application-local.yml.example、忘记替换示例值"的情形。
+# 占位值必须让 JwtUtil 在启动期直接失败，而不是用公开密钥跑起来。
+# 值均为假值，仅用于测试。
+jwt:
+  secret: CHANGE_ME_jwt_secret_at_least_32_chars_long_0000
+encrypt:
+  secret-key: CHANGE_ME_encrypt_secret_key_32chars

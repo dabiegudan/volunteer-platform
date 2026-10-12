@@ -1,0 +1,29 @@
+# ==============================================================================
+# 一体式志愿者服务平台 —— 本机开发密钥模板（application-local.yml.example）
+# ------------------------------------------------------------------------------
+# 用法：复制为同目录下的 application-local.yml，替换下面两个值为自己生成的随机串
+#   PowerShell : Copy-Item application-local.yml.example application-local.yml
+#                # 密钥可先在仓库根生成：.\scripts\gen-secrets.ps1
+#   bash       : cp application-local.yml.example application-local.yml
+#
+# 为什么要这么做：
+#   仓库里不放任何真实密钥（application-local.yml 已被 .gitignore 忽略），
+#   保证 `git clone` 后拿到的代码不含生产/开发密钥；
+#   而 application-dev.yml 通过 spring.config.import 加载真实文件，
+#   本机启动不再需要先 source .env。
+#
+# 注意：application.yml / application-dev.yml 里【不再有】jwt.secret 与
+#   encrypt.secret-key 这两个键。spring.config.import 导入的属性源优先级低于声明它的
+#   文档，一旦配置文件里写了空默认值（如 jwt.secret: ${JWT_SECRET:}），就会盖住本文件。
+#   环境变量 JWT_SECRET / ENCRYPT_SECRET_KEY 仍可用，且优先级高于本文件。
+#
+# 下面的示例值可直接用于本机开发（仅本地有效），但请不要拿去部署。
+# ==============================================================================
+
+# JWT HS256 签名密钥：≥ 32 字符；轮换后存量 Token 全部失效
+jwt:
+  secret: CHANGE_ME_jwt_secret_at_least_32_chars_long_0000
+
+# 敏感字段 AES-256-GCM 密钥：≥ 16 字符（建议 32）；轮换会导致历史密文无法解密
+encrypt:
+  secret-key: CHANGE_ME_encrypt_secret_key_32chars

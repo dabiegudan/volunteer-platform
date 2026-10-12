@@ -1,0 +1,105 @@
+target/
+!.mvn/wrapper/maven-wrapper.jar
+!**/src/main/**/target/
+!**/src/test/**/target/
+.kotlin
+
+### IntelliJ IDEA ###
+# 整个 .idea/ 一律忽略：dataSources.local.xml 含本机数据库用户名，
+# dataSources.xml 含本机 JDBC URL，workspace.xml 含本机绝对路径，均属环境信息。
+.idea/
+*.iws
+*.iml
+*.ipr
+
+### Eclipse ###
+.apt_generated
+.classpath
+.factorypath
+.project
+.settings
+.springBeans
+.sts4-cache
+
+### NetBeans ###
+/nbproject/private/
+/nbbuild/
+/dist/
+/nbdist/
+/.nb-gradle/
+build/
+!**/src/main/**/build/
+!**/src/test/**/build/
+
+### VS Code ###
+.vscode/
+
+### 环境变量与密钥（严禁提交） ###
+.env
+.env.local
+.env.*.local
+.env.bak
+.env.*
+*.env
+!.env.example
+*.pem
+*.key
+*.p12
+*.jks
+*.keystore
+*.pfx
+*.crt
+*.cer
+*.der
+*.csr
+*.p8
+id_rsa*
+id_ed25519*
+secrets/
+secrets.*
+!**/src/main/**/secrets-example/
+config.local.*
+credentials.*
+.npmrc
+.pgpass
+.my.cnf
+
+### Spring Boot 本机密钥（严禁提交） ###
+# application-local.yml 由 application-dev.yml 的 spring.config.import 加载，
+# 内含明文 jwt.secret / encrypt.secret-key，绝不能进仓库；
+# 模板文件 application-local.yml.example 必须一并放行（否则克隆者无参照）。
+**/application-local.yml
+**/application-local-*.yml
+!**/application-local.yml.example
+# 例外：测试夹具是纯假值，必须入库，否则克隆者跑 LocalSecretsImportTest 会找不到导入文件。
+!**/src/test/resources/application-local-*.yml
+
+### 日志 ###
+*.log
+npm-debug.log*
+logs/
+
+### 容器与数据卷 ###
+docker-compose.override.yml
+data/
+minio-data/
+mysql-data/
+
+### Mac OS ###
+.DS_Store
+
+### Windows ###
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+### 前端构建产物与依赖（volunteer-frontend） ###
+# 缺陷背景：原 .gitignore 的 `/dist/` 只匹配仓库根目录的 dist 目录，`build/` 只能命中
+# `volunteer-frontend/dist/build`，而 dist 本身与 node_modules 完全未被忽略。
+# 实测：volunteer-frontend/node_modules 有 31013 个文件 / 356.6 MB，
+# 一旦被提交会造成仓库体积爆炸且无法回退。
+node_modules/
+dist/
+unpackage/
+.vite/
+*.tsbuildinfo

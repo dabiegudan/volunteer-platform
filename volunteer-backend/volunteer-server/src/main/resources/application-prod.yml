@@ -1,0 +1,156 @@
+# ==============================================================================
+# 一体式志愿者服务平台 —— 生产环境（prod）
+# ------------------------------------------------------------------------------
+# 设计原则：生产环境【不提供任何敏感项默认值】。
+#   所有敏感配置必须由部署平台注入（Docker Compose / K8s Secret / 云平台密钥管理），
+#   缺失即启动失败 —— 这是"快速失败"策略，避免误用开发占位值上线。
+#
+# 启动示例：
+#   SPRING_PROFILES_ACTIVE=prod \
+#   SPRING_DATASOURCE_URL=... SPRING_DATASOURCE_USERNAME=... SPRING_DATASOURCE_PASSWORD=... \
+#   JWT_SECRET=... MINIO_ACCESS_KEY=... MINIO_SECRET_KEY=... ENCRYPT_SECRET_KEY=... \
+#   LLM_API_KEY=... java -jar app.jar
+#
+# 校验清单（启动前逐项确认）：
+#   SPRING_DATASOURCE_URL / SPRING_DATASOURCE_USERNAME / SPRING_DATASOURCE_PASSWORD
+#   JWT_SECRET（≥ 32 字符）
+#   MINIO_ACCESS_KEY / MINIO_SECRET_KEY
+#   ENCRYPT_SECRET_KEY
+#   LLM_API_KEY
+# ==============================================================================
+
+spring:
+  # ----------------------------------------------------------------------------
+  # 数据源：使用独立的最小权限账号，禁止使用 root
+  # ----------------------------------------------------------------------------
+  datasource:
+    url: ${SPRING_DATASOURCE_URL}
+    username: ${SPRING_DATASOURCE_USERNAME}
+    password: ${SPRING_DATASOURCE_PASSWORD}
+    hikari:
+      maximum-pool-size: ${SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE:20}
+      minimum-idle: ${SPRING_DATASOURCE_HIKARI_MINIMUM_IDLE:5}
+      connection-timeout: 20000
+      max-lifetime: 1200000
+      # 生产开启泄漏检测，超过阈值未归还连接会打印堆栈
+      leak-detection-threshold: ${SPRING_DATASOURCE_HIKARI_LEAK_DETECTION:60000}
+
+  # ----------------------------------------------------------------------------
+  # 数据库迁移（Flyway，基线方案）：生产环境覆盖项
+  # 与 application.yml 基准配置的差异及原因：
+  #   - baseline-on-migrate: false —— 生产**必须显式**建立基线，避免因误连错库而静默
+  #                                  给一个非空库打上基线、把真实结构当成"已是最新"；
+  #                                  首次上线请按文档「执行步骤」手工执行 baseline
+  #   - create-schemas: false      —— 库与 schema 均由 DBA 预先创建（应用账号不应有建库权限）
+  #   - clean-disabled: true       —— 绝不允许清库
+  #   - validate-on-migrate: true  —— 任何 checksum 漂移直接启动失败，不允许带病上线
+  # ----------------------------------------------------------------------------
+  flyway:
+    enabled: ${FLYWAY_ENABLED:true}
+    locations: ${FLYWAY_LOCATIONS:classpath:db/migration}
+    create-schemas: ${FLYWAY_CREATE_SCHEMAS:false}
+    baseline-on-migrate: ${FLYWAY_BASELINE_ON_MIGRATE:false}
+    baseline-version: ${FLYWAY_BASELINE_VERSION:1}
+    validate-on-migrate: ${FLYWAY_VALIDATE_ON_MIGRATE:true}
+    clean-disabled: ${FLYWAY_CLEAN_DISABLED:true}
+    table: ${FLYWAY_TABLE:flyway_schema_history}
+    encoding: UTF-8
+    out-of-order: ${FLYWAY_OUT_OF_ORDER:false}
+
+  data:
+    redis:
+      # 生产 Redis 必须启用密码
+      password: ${REDIS_PASSWORD:?生产环境必须设置 REDIS_PASSWORD}
+
+# ------------------------------------------------------------------------------
+# JWT：生产密钥必须由环境变量提供，且长度 ≥ 32 字符
+# ------------------------------------------------------------------------------
+jwt:
+  secret: ${JWT_SECRET}
+  expiration: ${JWT_EXPIRATION:86400000}
+
+# ------------------------------------------------------------------------------
+# MinIO：生产密钥必填
+# ------------------------------------------------------------------------------
+minio:
+  endpoint: ${MINIO_ENDPOINT}
+  accessKey: ${MINIO_ACCESS_KEY}
+  secretKey: ${MINIO_SECRET_KEY}
+  bucketName: ${MINIO_BUCKET:volunteer}
+  # 生产默认不自动建桶（由运维通过基础设施即代码方式创建），避免应用账号拥有建桶权限
+  auto-create-bucket: ${MINIO_AUTO_CREATE_BUCKET:false}
+
+# ------------------------------------------------------------------------------
+# 大模型：生产密钥必填
+# ------------------------------------------------------------------------------
+llm:
+  api-key: ${LLM_API_KEY}
+  base-url: ${LLM_BASE_URL:https://api.deepseek.com}
+  model: ${LLM_MODEL:deepseek-v4-flash}
+  timeout: ${LLM_TIMEOUT:60000}
+
+# ------------------------------------------------------------------------------
+# 敏感字段加密密钥：生产必填
+# 警告：更换该密钥会导致历史已加密数据无法解密，必须配套数据迁移方案
+# ------------------------------------------------------------------------------
+encrypt:
+  secret-key: ${ENCRYPT_SECRET_KEY}
+
+# ------------------------------------------------------------------------------
+# 跨域：生产只允许真实前端域名，禁止使用通配符
+# ------------------------------------------------------------------------------
+app:
+  cors:
+    allowed-origins: ${APP_CORS_ALLOWED_ORIGINS}
+
+# ------------------------------------------------------------------------------
+# 短信：生产默认关闭控制台模式
+# ------------------------------------------------------------------------------
+notification:
+  sms:
+    console-enabled: ${SMS_CONSOLE_ENABLED:false}
+    provider-name: ${SMS_PROVIDER_NAME:}
+
+# ------------------------------------------------------------------------------
+# 接口文档：生产默认关闭 Swagger UI，避免暴露接口结构
+# 如需保留，请改为 true 并在网关层限制访问来源 IP
+# ------------------------------------------------------------------------------
+springdoc:
+  api-docs:
+    enabled: ${SPRINGDOC_API_DOCS_ENABLED:false}
+  swagger-ui:
+    enabled: ${SPRINGDOC_SWAGGER_UI_ENABLED:false}
+
+# ------------------------------------------------------------------------------
+# 日志：生产降低级别，禁止输出 MyBatis SQL
+# ------------------------------------------------------------------------------
+logging:
+  level:
+    root: ${LOGGING_LEVEL_ROOT:WARN}
+    com.volunteer: ${LOGGING_LEVEL_COM_VOLUNTEER:INFO}
+    org.mybatis: ${LOGGING_LEVEL_ORG_MYBATIS:INFO}
+    com.zaxxer.hikari: ${LOGGING_LEVEL_COM_ZAXER_HIKARI:WARN}
+    # 生产保留 Flyway INFO：迁移结果必须可追溯（成功/失败/跳过都会记录）
+    org.flywaydb: ${LOGGING_LEVEL_ORG_FLYWAYDB:INFO}
+  file:
+    name: ${LOG_FILE_PATH:logs/volunteer-platform.log}
+  logback:
+    rollingpolicy:
+      max-file-size: 100MB
+      max-history: 30
+      total-size-cap: 3GB
+
+# ------------------------------------------------------------------------------
+# 监控：已引入 spring-boot-starter-actuator
+# 生产只暴露 health，且不展示详情（避免通过健康检查泄漏依赖组件信息）。
+# base-path 统一在 application.yml 设为 /api/actuator，
+# 端点地址：http://<host>:8081/api/actuator/health
+# ------------------------------------------------------------------------------
+management:
+  endpoints:
+    web:
+      exposure:
+        include: ${MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE:health}
+  endpoint:
+    health:
+      show-details: ${MANAGEMENT_ENDPOINT_HEALTH_SHOW_DETAILS:never}

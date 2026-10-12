@@ -1,0 +1,167 @@
+# ==============================================================================
+# 一体式志愿者服务平台 —— 开发环境（dev，默认激活）
+# ------------------------------------------------------------------------------
+# 与 application.yml 的分工：
+#   application.yml      公共结构与占位符默认值（可被本文件覆盖）
+#   application-dev.yml  仅放"开发环境独有"的取值，全部保留环境变量覆盖能力
+#   application-local.yml 本机开发密钥（jwt.secret / encrypt.secret-key），
+#                         已被 .gitignore 忽略，不会提交
+#
+# 【本机开发密钥从哪来】
+#   由本文件顶部 spring.config.import 导入 application-local.yml（同目录）。
+#   首次使用：Copy-Item application-local.yml.example application-local.yml 后填入真实值。
+#   该导入标记为 optional：文件不存在时不报错，改为回落到操作系统环境变量
+#   （容器由 docker-compose.env.yml 注入 JWT_SECRET / ENCRYPT_SECRET_KEY，
+#     仍可用 . .\scripts\load-env.ps1 手工导入）。
+#
+# 【为什么只放在 dev】
+#   prod 由 application-prod.yml 的 ${JWT_SECRET} 无默认值强制注入，绝不读本机明文文件。
+# ==============================================================================
+
+spring:
+  # 本机开发密钥载体（optional：缺失不报错，见文件头说明）
+  config:
+    import: optional:classpath:application-local.yml
+
+  # ----------------------------------------------------------------------------
+  # 数据源：开发环境默认连接宿主机 MySQL（localhost:3306 / root / root）
+  # 仍支持环境变量覆盖：SPRING_DATASOURCE_URL / _USERNAME / _PASSWORD
+  # ----------------------------------------------------------------------------
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:mysql://localhost:3306/volunteer_db?useUnicode=true&characterEncoding=utf8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true}
+    username: ${SPRING_DATASOURCE_USERNAME:root}
+    password: ${SPRING_DATASOURCE_PASSWORD:root}
+    hikari:
+      # 开发环境放宽连接池上限，便于调试并发
+      maximum-pool-size: ${SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE:20}
+      minimum-idle: ${SPRING_DATASOURCE_HIKARI_MINIMUM_IDLE:5}
+      idle-timeout: 300000
+      connection-timeout: 20000
+      max-lifetime: 1200000
+
+  # ----------------------------------------------------------------------------
+  # Redis：开发默认宿主机
+  # ----------------------------------------------------------------------------
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
+      database: ${REDIS_DB:0}
+      timeout: ${REDIS_TIMEOUT:3000}
+      lettuce:
+        pool:
+          max-active: ${REDIS_POOL_MAX_ACTIVE:8}
+          max-idle: ${REDIS_POOL_MAX_IDLE:8}
+          min-idle: ${REDIS_POOL_MIN_IDLE:2}
+          max-wait: -1ms
+
+  servlet:
+    multipart:
+      max-file-size: ${SPRING_SERVLET_MULTIPART_MAX_FILE_SIZE:50MB}
+      max-request-size: ${SPRING_SERVLET_MULTIPART_MAX_REQUEST_SIZE:100MB}
+
+  # ----------------------------------------------------------------------------
+  # JSON 序列化：统一时区与日期格式，避免与数据库/容器时区不一致
+  # ----------------------------------------------------------------------------
+  jackson:
+    date-format: yyyy-MM-dd HH:mm:ss
+    time-zone: ${TZ:Asia/Shanghai}
+    serialization:
+      write-dates-as-timestamps: false
+      fail-on-empty-beans: false
+    deserialization:
+      fail-on-unknown-properties: false
+
+# ------------------------------------------------------------------------------
+# JWT：本机开发密钥
+#   优先级从高到低：
+#     1. 环境变量 JWT_SECRET（宽松绑定 → jwt.secret；容器由 docker-compose 注入，
+#        本机可由 . .\scripts\load-env.ps1 导入）。环境变量优先级最高，两者都在时以它为准。
+#     2. application-local.yml 的 jwt.secret（本文件顶部 import，已 gitignore）
+#     3. 本文件的 jwt.expiration 默认值 86400000（24 小时）
+# 注意：此处【不写】jwt.secret —— spring.config.import 导入的属性源优先级【低于】声明文档，
+#       一旦在这里或 application.yml 写 jwt.secret: ${JWT_SECRET:}，这个空字符串就会盖住
+#       application-local.yml（本机表现为报 "Could not resolve placeholder 'JWT_SECRET'"）。
+# 缺失或长度 < 32 字符时 JwtUtil 会直接终止启动（快速失败）
+# ------------------------------------------------------------------------------
+jwt:
+  expiration: ${JWT_EXPIRATION:86400000}
+
+# ------------------------------------------------------------------------------
+# MinIO：开发环境默认指向宿主机 9090（与 docker-compose.yml 的 9090:9000 映射一致）
+# 说明：容器内运行时由 docker-compose 注入 http://minio:9000 覆盖此处默认值
+# ------------------------------------------------------------------------------
+minio:
+  endpoint: ${MINIO_ENDPOINT:http://localhost:9090}
+  accessKey: ${MINIO_ACCESS_KEY:minioadmin}
+  secretKey: ${MINIO_SECRET_KEY:minioadmin}
+  bucketName: ${MINIO_BUCKET:volunteer}
+  # 开发环境开启自动建桶，省去手工创建 volunteer 桶的步骤
+  auto-create-bucket: ${MINIO_AUTO_CREATE_BUCKET:true}
+
+# ------------------------------------------------------------------------------
+# 大模型：开发环境默认密钥为空，由 EnvConfig 启动时告警提示
+# ------------------------------------------------------------------------------
+llm:
+  api-key: ${LLM_API_KEY:}
+  base-url: ${LLM_BASE_URL:https://api.deepseek.com}
+  model: ${LLM_MODEL:deepseek-v4-flash}
+  embedding-model: ${LLM_EMBEDDING_MODEL:text-embedding-ada-002}
+  type: ${LLM_TYPE:deepseek}
+  timeout: ${LLM_TIMEOUT:60000}
+
+attendance:
+  max-distance-meters: ${ATTENDANCE_MAX_DISTANCE_METERS:500}
+
+# ------------------------------------------------------------------------------
+# 短信：开发环境仅打印到控制台，不真实发送
+# ------------------------------------------------------------------------------
+notification:
+  sms:
+    console-enabled: ${SMS_CONSOLE_ENABLED:true}
+    provider-name: ${SMS_PROVIDER_NAME:console}
+
+# ------------------------------------------------------------------------------
+# 说明：knife4j.* 配置历史上存在，但项目未引入 knife4j 依赖，该段不产生效果，
+#       已移除。实际可用的接口文档为 SpringDoc Swagger UI。
+# ------------------------------------------------------------------------------
+
+# ------------------------------------------------------------------------------
+# 敏感字段加密：本机开发密钥来源与 JWT 完全一致（见上方 JWT 段）
+#   环境变量 ENCRYPT_SECRET_KEY（宽松绑定 → encrypt.secret-key）
+#   > application-local.yml 的 encrypt.secret-key
+# 同样不写 encrypt.secret-key：导入文件优先级低于本文件，写了会盖住本机密钥。
+# 未配置时 EncryptUtil / EnvConfig 在启动校验中给出可读提示。
+# 警告：更换该密钥会导致历史已加密数据无法解密
+# ------------------------------------------------------------------------------
+
+# ------------------------------------------------------------------------------
+# 日志：开发环境打开详细日志便于排查
+# ------------------------------------------------------------------------------
+logging:
+  level:
+    root: ${LOGGING_LEVEL_ROOT:INFO}
+    com.volunteer: ${LOGGING_LEVEL_COM_VOLUNTEER:DEBUG}
+    org.mybatis: ${LOGGING_LEVEL_ORG_MYBATIS:DEBUG}
+    com.zaxxer.hikari: ${LOGGING_LEVEL_COM_ZAXER_HIKARI:DEBUG}
+    # 开发环境输出 Flyway 迁移明细，便于确认脚本是否按预期执行
+    org.flywaydb: ${LOGGING_LEVEL_ORG_FLYWAYDB:DEBUG}
+
+# ------------------------------------------------------------------------------
+# 监控：已引入 spring-boot-starter-actuator
+# 开发环境暴露 health/info/metrics 并展示健康检查详情。
+# base-path 统一在 application.yml 设为 /api/actuator，
+# 端点地址：http://localhost:8081/api/actuator/health
+# ------------------------------------------------------------------------------
+management:
+  endpoints:
+    web:
+      exposure:
+        include: ${MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE:health,info,metrics}
+  endpoint:
+    health:
+      # 【安全】默认 never，理由见 application.yml 中同项注释：
+      # /api/actuator/health 是确认过被匿名放行的路径，返回组件详情会泄露内部信息。
+      # 本地排查时用 $env:MANAGEMENT_ENDPOINT_HEALTH_SHOW_DETAILS='always' 临时开启即可。
+      show-details: ${MANAGEMENT_ENDPOINT_HEALTH_SHOW_DETAILS:never}

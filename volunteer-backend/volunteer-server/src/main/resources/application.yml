@@ -1,0 +1,299 @@
+# ==============================================================================
+# 一体式志愿者服务平台 —— 主配置（环境变量驱动）
+# ------------------------------------------------------------------------------
+# 环境变量管理原则（完整方案见 文档/环境变量管理最佳实践.md）：
+#   1. 本文件不加载 .env，项目也不引入 spring-dotenv / dotenv-java 等依赖。
+#      Spring Boot 原生即可从操作系统环境变量读取配置，无需任何额外库。
+#   2. 敏感项一律写成 ${ENV_VAR:开发默认值}：
+#        ${VAR:default}  —— 未设置环境变量时使用默认值（仅用于本地开发）
+#        ${VAR}          —— 未设置即启动失败（生产强制项，推荐）
+#   3. 敏感值的唯一来源是项目根目录 .env：
+#        容器场景 → docker-compose.env.yml 的 environment 段注入
+#        本机场景 → scripts/load-env.ps1 | load-env.sh 导入当前 shell
+#   4. 严禁在本文件写入真实密钥/口令，仓库中的默认值均为开发占位值。
+#
+# 命名规则：Spring 松散绑定把 SERVER_PORT 映射到 server.port，
+#          SPRING_DATASOURCE_URL 映射到 spring.datasource.url，依此类推。
+# ==============================================================================
+
+# ------------------------------------------------------------------------------
+# 服务器
+# ------------------------------------------------------------------------------
+server:
+  port: ${SERVER_PORT:8081}
+  shutdown: graceful
+  # 说明：本项目未设置 context-path，接口的 /api 前缀由各 Controller 的
+  #       @RequestMapping("/api/xxx") 提供。若在此统一加前缀，必须同步修改
+  #       前端 VITE_API_BASE_URL、nginx.conf 与本文档中的全部示例地址。
+
+spring:
+  application:
+    name: volunteer-platform
+
+  # dev（本地开发）/ prod（生产：敏感项无默认值，缺失即启动失败）
+  profiles:
+    active: ${SPRING_PROFILES_ACTIVE:dev}
+
+  lifecycle:
+    timeout-per-shutdown-phase: 30s
+
+  # ----------------------------------------------------------------------------
+  # 数据源（MySQL 8 / HikariCP）
+  # 注意：SPRING_DATASOURCE_URL 优先级高于 DB_HOST/DB_PORT/DB_NAME 的拼装结果，
+  #       本项目统一使用 SPRING_DATASOURCE_URL，避免两种写法互相覆盖。
+  # ----------------------------------------------------------------------------
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: ${SPRING_DATASOURCE_URL:jdbc:mysql://${DB_HOST:localhost}:${DB_PORT:3306}/${DB_NAME:volunteer_db}?useUnicode=true&characterEncoding=utf8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true}
+    username: ${SPRING_DATASOURCE_USERNAME:${DB_USERNAME:root}}
+    password: ${SPRING_DATASOURCE_PASSWORD:${DB_PASSWORD:root}}
+    hikari:
+      pool-name: VolunteerHikariPool
+      maximum-pool-size: ${SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE:10}
+      minimum-idle: ${SPRING_DATASOURCE_HIKARI_MINIMUM_IDLE:5}
+      idle-timeout: ${SPRING_DATASOURCE_HIKARI_IDLE_TIMEOUT:300000}
+      connection-timeout: ${SPRING_DATASOURCE_HIKARI_CONNECTION_TIMEOUT:20000}
+      max-lifetime: ${SPRING_DATASOURCE_HIKARI_MAX_LIFETIME:1200000}
+      connection-test-query: SELECT 1
+
+  # ----------------------------------------------------------------------------
+  # Redis（缓存 / 验证码 / 限流计数 / 权限缓存）
+  # ----------------------------------------------------------------------------
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
+      database: ${REDIS_DB:0}
+      timeout: ${REDIS_TIMEOUT:3000}
+      connect-timeout: ${REDIS_CONNECT_TIMEOUT:5000}
+      lettuce:
+        pool:
+          max-active: ${REDIS_POOL_MAX_ACTIVE:8}
+          max-idle: ${REDIS_POOL_MAX_IDLE:8}
+          min-idle: ${REDIS_POOL_MIN_IDLE:2}
+          max-wait: ${REDIS_POOL_MAX_WAIT:-1ms}
+        shutdown-timeout: 200ms
+
+  # ----------------------------------------------------------------------------
+  # 数据库迁移（Flyway，基线方案）
+  # 脚本目录：classpath:db/migration
+  #   V1__baseline_full_schema.sql        基线：全量 70 张表 + 索引 + 外键 + 种子数据
+  #   V2__...                             增量（基线之后的变更都写成增量脚本）
+  #
+  # 【两种场景的行为差异 —— 关键设计】
+  #   全新空库：不触发 baseline，Flyway 直接执行 V1、V2 ... 建全量结构
+  #   已有数据库：库非空且无 flyway_schema_history -> 触发 baseline-on-migrate，
+  #               在历史表写入一条版本 = baseline-version(=1) 的基线记录，
+  #               并**跳过 V1**，只执行 V2 及之后。已有数据不受影响。
+  #
+  # 【baseline-version 为什么是 1】
+  #   基线版本 = 被基线覆盖的最后一个迁移版本。V1 是"全量初始化"，
+  #   所以已有库的基线版本记为 1，后续增量从 2 开始。
+  #   设错会导致：偏小 → V1 在已有库上重复执行建表报 "Table already exists"；
+  #               偏大 → 中间的增量脚本被永久跳过。
+  # ----------------------------------------------------------------------------
+  flyway:
+    enabled: ${FLYWAY_ENABLED:true}
+    locations: ${FLYWAY_LOCATIONS:classpath:db/migration}
+    # 【重要】MySQL 下该配置无法创建"数据库"，只能创建"库内的 schema"。
+    # 原因（Flyway 10.10.0 源码 Flyway.java:164）：createSchemas 在**取得 JDBC 连接之后**
+    # 才执行；而 MySQL 驱动在库不存在时连接阶段即抛
+    #   Unable to obtain connection: Unknown database 'volunteer_db'
+    # 因此库本身必须预先存在，创建方式见「数据库迁移指南」§4.2：
+    #   · 本机开发：由 db/init.sql 建库（脚本内含 CREATE DATABASE），或手工 CREATE DATABASE
+    #   · Docker  ：docker-compose.env.yml 的 MYSQL_DATABASE 会自动建库
+    #   · 生产    ：由 DBA 预先建库（应用账号通常无建库权限）
+    # 保持 false，避免"看起来能自动建库"的误解。
+    create-schemas: ${FLYWAY_CREATE_SCHEMAS:false}
+    # 已有非空库自动建立基线（基线方案的核心开关）
+    baseline-on-migrate: ${FLYWAY_BASELINE_ON_MIGRATE:true}
+    baseline-version: ${FLYWAY_BASELINE_VERSION:1}
+    baseline-description: ${FLYWAY_BASELINE_DESCRIPTION:baseline full schema}
+    # 启动时校验已执行脚本的 checksum，脚本被改动会直接启动失败（防静默漂移）
+    validate-on-migrate: ${FLYWAY_VALIDATE_ON_MIGRATE:true}
+    # 禁止 flyway clean（会清空整个库），生产与开发均建议保持 true
+    clean-disabled: ${FLYWAY_CLEAN_DISABLED:true}
+    # 历史表名（默认即此值，显式写出便于排查）
+    table: ${FLYWAY_TABLE:flyway_schema_history}
+    encoding: UTF-8
+    # 乱序执行：多分支并行开发时后发布的低版本脚本是否允许执行。
+    # 保持 false（严格顺序）可尽早暴露版本号冲突，避免生产出现"漏执行"。
+    out-of-order: ${FLYWAY_OUT_OF_ORDER:false}
+
+  # ----------------------------------------------------------------------------
+  # 文件上传限制
+  # 经 Nginx 上传时还需同步调整 nginx.conf 的 client_max_body_size
+  # ----------------------------------------------------------------------------
+  servlet:
+    multipart:
+      max-file-size: ${SPRING_SERVLET_MULTIPART_MAX_FILE_SIZE:50MB}
+      max-request-size: ${SPRING_SERVLET_MULTIPART_MAX_REQUEST_SIZE:100MB}
+
+# ------------------------------------------------------------------------------
+# JWT 认证
+# 密钥【不在此处绑定】，必须由外部提供，优先级从高到低：
+#   1. 环境变量 JWT_SECRET（容器 → docker-compose 从 .env 注入；
+#      本机 → . .\scripts\load-env.ps1 导入）。
+#      无需在此写 ${JWT_SECRET}：Spring Boot 的宽松绑定会把 OS 环境变量
+#      JWT_SECRET 直接映射到 jwt.secret，且环境变量优先级高于任何配置文件。
+#   2. application-local.yml 的 jwt.secret（仅 dev profile 通过 spring.config.import 导入，
+#      本机明文，已被 .gitignore 忽略）
+# 【为什么这里不写 jwt.secret】
+#   spring.config.import 导入的属性源优先级【低于】声明它的文档。若在此写
+#   jwt.secret: ${JWT_SECRET:}，这个"声明文档里的空字符串"会盖住 application-local.yml，
+#   本机没导入 .env 时依旧报 "Could not resolve placeholder 'JWT_SECRET'" 或空密钥启动失败。
+#   因此由 JwtUtil 在启动时统一校验：缺失或长度 < 32 字符直接终止启动（快速失败）。
+# prod 由 application-prod.yml 的 ${JWT_SECRET}（无默认值）强制注入，不读本机明文文件
+# ------------------------------------------------------------------------------
+jwt:
+  expiration: ${JWT_EXPIRATION:86400000}
+
+# ------------------------------------------------------------------------------
+# MinIO 对象存储
+# 容器内地址 http://minio:9000；本机开发 http://localhost:9090
+# ------------------------------------------------------------------------------
+minio:
+  endpoint: ${MINIO_ENDPOINT:http://localhost:9090}
+  accessKey: ${MINIO_ACCESS_KEY:minioadmin}
+  secretKey: ${MINIO_SECRET_KEY:minioadmin}
+  bucketName: ${MINIO_BUCKET:volunteer}
+  # 启动时自动创建桶（默认 false）。
+  # 设为 true 可消除「首次部署必须手工登录控制台建桶」的步骤；
+  # 该配置此前是失效项（Java 类中无对应字段），现已真正生效。
+  auto-create-bucket: ${MINIO_AUTO_CREATE_BUCKET:false}
+
+# ------------------------------------------------------------------------------
+# 大语言模型（DeepSeek / 任意 OpenAI 兼容服务）
+# 采用 OpenAI 兼容协议，切换服务商只需改 base-url / model / api-key，无需改代码
+# 默认值为空，由 EnvConfig 在启动时校验：缺失仅告警，不影响非 AI 功能启动
+# ------------------------------------------------------------------------------
+llm:
+  api-key: ${LLM_API_KEY:}
+  base-url: ${LLM_BASE_URL:https://api.deepseek.com}
+  model: ${LLM_MODEL:deepseek-v4-flash}
+  embedding-model: ${LLM_EMBEDDING_MODEL:text-embedding-ada-002}
+  type: ${LLM_TYPE:deepseek}
+  timeout: ${LLM_TIMEOUT:60000}
+
+# ------------------------------------------------------------------------------
+# 考勤
+# ------------------------------------------------------------------------------
+attendance:
+  max-distance-meters: ${ATTENDANCE_MAX_DISTANCE_METERS:500}
+
+# ------------------------------------------------------------------------------
+# 短信通知（console-enabled=true 时仅打印日志，不真实发送）
+# ------------------------------------------------------------------------------
+notification:
+  sms:
+    console-enabled: ${SMS_CONSOLE_ENABLED:false}
+    provider-name: ${SMS_PROVIDER_NAME:}
+
+# ------------------------------------------------------------------------------
+# 接口文档（生产建议关闭 swagger-ui，或在网关层限制访问来源）
+# ------------------------------------------------------------------------------
+springdoc:
+  api-docs:
+    enabled: ${SPRINGDOC_API_DOCS_ENABLED:true}
+  swagger-ui:
+    enabled: ${SPRINGDOC_SWAGGER_UI_ENABLED:true}
+
+# ------------------------------------------------------------------------------
+# 敏感字段加密（AES-256-GCM）
+# 密钥【不在此处绑定】，来源优先级与上方 jwt.secret 完全一致：
+#   环境变量 ENCRYPT_SECRET_KEY（宽松绑定 → encrypt.secret-key）
+#   > application-local.yml 的 encrypt.secret-key（仅 dev，spring.config.import 导入）
+# 这里同样不写 encrypt.secret-key：导入文件的优先级低于本文件，写了会盖住本机密钥。
+# 未配置时由 EncryptUtil / EnvConfig 在启动校验中给出可读提示。
+# 警告：更换该密钥会导致历史已加密数据无法解密，必须配套数据迁移。
+# ------------------------------------------------------------------------------
+
+# ------------------------------------------------------------------------------
+# 跨域（SecurityConfig 读取 app.cors.allowed-origins，逗号分隔）
+# ------------------------------------------------------------------------------
+app:
+  cors:
+    allowed-origins: ${APP_CORS_ALLOWED_ORIGINS:http://localhost:8080,http://localhost:3000,http://localhost:5173}
+  # ----------------------------------------------------------------------------
+  # 限流（RateLimitInterceptor）
+  # 计数维度为「客户端 IP + 请求 URI」，窗口固定 1 分钟。
+  # 【重要】原实现把阈值硬编码为 5 次/分钟，而拦截路径覆盖 /api/activity/** 与
+  # /api/attendance/** 的**全部方法**（含 GET 列表/详情），导致正常浏览即触发 429。
+  # 现改为可配置，默认 60 次/分钟，登录等敏感接口可在网关或后续按 URI 细化收紧。
+  # Redis 不可用时该组件自动降级放行（见 RateLimitInterceptor 的 try-catch），
+  # 不会因为限流组件故障导致登录/活动/签到接口整体 500。
+  # ----------------------------------------------------------------------------
+  rate-limit:
+    enabled: ${RATE_LIMIT_ENABLED:true}
+    max-requests-per-minute: ${RATE_LIMIT_MAX_REQUESTS_PER_MINUTE:60}
+
+# ------------------------------------------------------------------------------
+# 监控（Actuator）
+# 【路径约定 —— 关键】
+#   本项目**未设置 server.servlet.context-path**，`/api` 前缀由各 Controller 的
+#   @RequestMapping("/api/...") 提供。而 Spring Boot Actuator 的默认端点是
+#   /actuator/**（不带 /api），与项目其余 URL 约定不一致，会导致：
+#     · 期望访问 /api/actuator/health -> 404/500（该路径不存在）
+#     · 实际端点在 /actuator/health   -> 不在 Security 白名单内，返回 403
+#   因此这里把 management 的 base-path 显式对齐到 /api/actuator，
+#   使健康检查地址与项目约定、SecurityConfig 白名单、Dockerfile HEALTHCHECK
+#   三者统一为：/api/actuator/health
+# ------------------------------------------------------------------------------
+management:
+  endpoints:
+    # 【关键】必须保持 true（Spring Boot 默认值）。
+    # Spring Boot 的端点启用逻辑是：`enabled-by-default` 决定所有端点的默认启用状态，
+    # 再由 endpooint.<id>.enabled 覆盖；而 `web.exposure.include` 只控制"已启用端点是否暴露"。
+    # 若把 enabled-by-default 设为 false，即使 exposure.include 列了 health，
+    # 该端点也处于「未启用」状态 —— 启动日志会显示 "Exposing 0 endpoints"，
+    # 访问任何 Actuator 端点都因找不到处理器而报 500（NoResourceFoundException）。
+    # 因此这里恢复为 true，真正的访问控制在 SecurityConfig 白名单与 exposure.include。
+    enabled-by-default: ${MANAGEMENT_ENDPOINTS_ENABLED_BY_DEFAULT:true}
+    web:
+      base-path: /api/actuator
+      # 仅暴露下列端点（最小暴露面）；未列出的端点即使已启用也无法通过 HTTP 访问
+      exposure:
+        include: ${MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE:health,info,metrics}
+  endpoint:
+    health:
+      # 【安全】默认 never：/api/actuator/health 在 SecurityConfig.java:60-62 中属于匿名放行路径，
+      # show-details=always 会把数据库类型与校验语句、服务器绝对路径与磁盘容量、Redis 版本等
+      # 内部信息返回给未认证访问者（实测确认）。health 的整体 status 字段不受影响，
+      # 因此 Dockerfile 的 HEALTHCHECK 与编排的 service_healthy 判定照常工作。
+      # 需要排查环境时临时设置 MANAGEMENT_ENDPOINT_HEALTH_SHOW_DETAILS=always 即可。
+      show-details: ${MANAGEMENT_ENDPOINT_HEALTH_SHOW_DETAILS:never}
+      probes:
+        # 开启 liveness / readiness 探针，供 k8s 或编排使用
+        enabled: true
+  info:
+    env:
+      # 【安全】默认关闭：/api/actuator/info 在 SecurityConfig 中属于匿名放行路径，
+      # 若开启 env 会把环境变量/系统属性以明文暴露给未认证访问者。
+      # 需要排查环境时临时置为 true，或改由 MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE
+      # 移除 info 端点。
+      enabled: ${MANAGEMENT_INFO_ENV_ENABLED:false}
+
+# ------------------------------------------------------------------------------
+# 日志
+# 生产必须避免 org.mybatis=DEBUG（打印完整 SQL，泄漏数据且影响性能）
+# ------------------------------------------------------------------------------
+logging:
+  level:
+    root: ${LOGGING_LEVEL_ROOT:INFO}
+    com.volunteer: ${LOGGING_LEVEL_COM_VOLUNTEER:DEBUG}
+    org.mybatis: ${LOGGING_LEVEL_ORG_MYBATIS:DEBUG}
+    # Flyway 迁移日志：排查迁移失败时的第一手信息，保持 INFO
+    org.flywaydb: ${LOGGING_LEVEL_ORG_FLYWAYDB:INFO}
+    com.zaxxer.hikari: ${LOGGING_LEVEL_COM_ZAXER_HIKARI:INFO}
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n"
+
+# ------------------------------------------------------------------------------
+# 监控端点配置已统一到上方「监控（Actuator）」段。
+# 说明：本项目**已引入** spring-boot-starter-actuator，
+#       健康检查地址为 /api/actuator/health
+#       （base-path 已显式设为 /api/actuator，与项目 URL 约定一致）。
+#       此处原先另有一段 management 配置，为避免 YAML 重复键被静默覆盖，已合并过去。
+# ------------------------------------------------------------------------------
+

@@ -1,0 +1,5 @@
+# 测试夹具：只有加密密钥，jwt.secret 留给环境变量。
+# 用于验证"环境变量可以替代 application-local.yml"（宽松绑定）。
+# 值均为假值，仅用于测试。
+encrypt:
+  secret-key: fixture-local-encrypt-key-32chars

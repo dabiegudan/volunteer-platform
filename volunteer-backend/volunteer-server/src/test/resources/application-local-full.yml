@@ -1,0 +1,7 @@
+# 测试夹具：模拟本机 application-local.yml 的正常形态（两个密钥都有）。
+# 由 com.volunteer.server.LocalSecretsImportTest 通过 spring.config.import 显式导入。
+# 值均为假值，仅用于测试，不得复制到任何真实环境。
+jwt:
+  secret: fixture-local-jwt-secret-key-at-least-32-chars
+encrypt:
+  secret-key: fixture-local-encrypt-key-32chars
